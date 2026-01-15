@@ -43,7 +43,7 @@ $options->default_entries = 5;
 // This limits the user-supplied &max=x value. For example, if the user
 // asks for 20 items to be processed (&max=20), if max_entries is set to 
 // 10, only 10 will be processed.
-$options->max_entries = 10;
+$options->max_entries = 30;
 
 // Full content
 // ----------------------
