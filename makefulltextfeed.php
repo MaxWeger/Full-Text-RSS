@@ -1,8 +1,6 @@
 <?php
 // makefulltextfeed.php — PHP 8.x safe single-file version
-// This file merges fixes to prevent deprecated warnings from breaking headers,
-// and guards for PHP 8 CurlHandle changes. It assumes existing libraries are present
-// at /var/www/html/libraries/ and you want to keep the same app behavior.
+// Hardened for PHP 8 SimplePie/HumbleHttpAgent differences and CurlHandle behavior.
 
 // 0) Production-safe error handling: log everything, show nothing.
 error_reporting(E_ALL);
@@ -14,17 +12,14 @@ if (!headers_sent()) {
     ob_start();
 }
 
-// 2) Strict headers only after buffering starts. We'll send once here.
-// You may adjust content-type later if you emit JSON/XML conditionally.
+// 2) Strict headers only after buffering starts.
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 header('X-Frame-Options: SAMEORIGIN');
 header('X-XSS-Protection: 0');
 header('Content-Type: application/xml; charset=UTF-8');
 
-// 3) Remove deprecated libxml_disable_entity_loader() usage.
-
-// 4) Autoload libraries (SimplePie, HTML5-PHP, HumbleHttpAgent).
+// 3) Autoload libraries (SimplePie, HTML5-PHP, HumbleHttpAgent).
 $base = __DIR__;
 function safe_require(string $path): bool {
     if (file_exists($path)) {
@@ -48,7 +43,7 @@ if (!$ok) {
     exit;
 }
 
-// 5) Input: feed URL and options.
+// 4) Input: feed URL and options.
 function param(string $name, mixed $default = null): mixed {
     if (isset($_GET[$name])) return $_GET[$name];
     if (isset($_POST[$name])) return $_POST[$name];
@@ -68,12 +63,7 @@ if ($itemLimit <= 0) $itemLimit = 50;
 $timeoutSec = (int) param('timeout', 15);
 if ($timeoutSec < 3) $timeoutSec = 10;
 
-// 6) Utilities
-function safe_lower(?string $s): ?string {
-    return $s === null ? null : strtolower($s);
-}
-
-// Create a cURL handle safely
+// 5) Utilities
 function make_curl_handle(string $url, int $timeout): ?CurlHandle {
     $ch = curl_init();
     if ($ch === false) {
@@ -102,13 +92,11 @@ function make_curl_handle(string $url, int $timeout): ?CurlHandle {
     return $ch;
 }
 
-// Fetch a URL via CurlHandle with error handling
 function fetch_url(string $url, int $timeout): array {
     $ch = make_curl_handle($url, $timeout);
     if ($ch === null) {
         return ['ok' => false, 'status' => 0, 'body' => '', 'error' => 'Curl init failed'];
     }
-
     $body = curl_exec($ch);
     if ($body === false) {
         $err = curl_error($ch);
@@ -121,7 +109,7 @@ function fetch_url(string $url, int $timeout): array {
     return ['ok' => $code >= 200 && $code < 400, 'status' => (int)$code, 'body' => (string)$body, 'error' => ''];
 }
 
-// 7) Parse feed with SimplePie
+// 6) Parse feed with SimplePie (avoid crashing on its internal error handler).
 $sp = new SimplePie();
 $sp->set_feed_url($feedUrl);
 $sp->enable_order_by_date(true);
@@ -129,15 +117,16 @@ $sp->set_cache_duration(0);
 $sp->init();
 
 if ($sp->error()) {
+    // Log and continue with empty items instead of invoking SimplePie_Misc::error path
     error_log("SimplePie error: " . $sp->error());
 }
 
-// 8) Build output: expand items using HumbleHttpAgent/RollingCurl safely.
 $items = $sp->get_items(0, $itemLimit);
 if (!is_array($items)) {
     $items = [];
 }
 
+// 7) Prepare batch targets
 $targets = [];
 foreach ($items as $it) {
     $link = $it->get_link();
@@ -147,27 +136,25 @@ foreach ($items as $it) {
     $targets[] = $link;
 }
 
+// 8) Fetch full texts with HumbleHttpAgent when possible; guard method APIs and CurlHandle issues.
 $fullTexts = [];
 if (!empty($targets)) {
     try {
         $agent = new HumbleHttpAgent();
 
-        // Guard timeout setter methods across different library versions
+        // Timeout API varies; guard methods.
         if (method_exists($agent, 'setConnectTimeout')) {
             $agent->setConnectTimeout($timeoutSec);
         } elseif (method_exists($agent, 'setOptions')) {
-            // Some versions accept an options array
             $agent->setOptions(['connect_timeout' => $timeoutSec]);
-        } // else: rely on defaults
-
+        }
         if (method_exists($agent, 'setTimeout')) {
             $agent->setTimeout($timeoutSec);
         } elseif (method_exists($agent, 'setOptions')) {
-            // If only setOptions exists, apply general timeout too
             $agent->setOptions(['timeout' => $timeoutSec]);
-        } // else: rely on defaults
+        }
 
-        // Fetch batch if available; shape may vary
+        // Attempt batch fetch.
         $responses = $agent->fetchAll($targets);
 
         foreach ($targets as $idx => $url) {
@@ -186,6 +173,7 @@ if (!empty($targets)) {
             }
 
             if ($respBody === '') {
+                // Fallback: single fetch via curl.
                 $single = fetch_url($url, $timeoutSec);
                 $respBody = $single['body'];
                 $status = $single['status'];
@@ -198,6 +186,8 @@ if (!empty($targets)) {
             ];
         }
     } catch (Throwable $e) {
+        // Common PHP 8 issue from HumbleHttpAgent: "Object of class CurlHandle could not be converted to string"
+        // Fall back to safe per-URL fetch with curl for resilience.
         error_log("HumbleHttpAgent batch error: " . $e->getMessage());
         foreach ($targets as $url) {
             $single = fetch_url($url, $timeoutSec);
@@ -210,10 +200,9 @@ if (!empty($targets)) {
     }
 }
 
-// 9) Minimal full-text extraction
+// 9) Minimal full-text extraction (regex heuristics).
 function extract_main_content(string $html): string {
     $clean = $html;
-
     if (preg_match('~<article\b[^>]*>(.*?)</article>~is', $clean, $m)) {
         return trim($m[1]);
     }
@@ -226,7 +215,7 @@ function extract_main_content(string $html): string {
     return trim($clean);
 }
 
-// Helper to get content type safely from a SimplePie item across versions
+// 10) Content type inference across SimplePie versions.
 function infer_item_content_type(SimplePie_Item $item): string {
     // Prefer enclosure MIME type if present
     if (method_exists($item, 'get_enclosure')) {
@@ -252,7 +241,7 @@ function infer_item_content_type(SimplePie_Item $item): string {
     return $hasHtml ? 'text/html' : 'application/xml';
 }
 
-// 10) Emit RSS XML with expanded content.
+// 11) Emit RSS XML with expanded content.
 echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
 echo "<rss version=\"2.0\">\n";
 echo "  <channel>\n";
@@ -264,10 +253,9 @@ foreach ($items as $it) {
     $title = $it->get_title() ?: '';
     $link = $it->get_link() ?: '';
     $desc = $it->get_description() ?: '';
-    $date = $it->get_date('U');
+    $date = $it->get_date('U'); // may be false for undated items
     $guid = $it->get_id() ?: $link;
 
-    // SAFE: do not call $it->get_content_type() directly (may not exist)
     $mime = infer_item_content_type($it);
 
     $contentHtml = '';
@@ -293,7 +281,7 @@ foreach ($items as $it) {
 echo "  </channel>\n";
 echo "</rss>\n";
 
-// 11) Finalize buffered output safely.
+// 12) Finalize buffered output safely.
 if (ob_get_level() > 0) {
     ob_end_flush();
 }
