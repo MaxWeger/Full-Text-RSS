@@ -261,6 +261,30 @@ foreach ($items as $it) {
     // Safe lowercase helper example (avoid strtolower(null))
     $mime = safe_lower($it->get_content_type() ?: null); // may be null on some feeds
 
+// makefulltextfeed.php (around line 262)
+$ctype = null;
+
+// Prefer enclosure MIME type if available
+if (method_exists($item, 'get_enclosure')) {
+    $enclosure = $item->get_enclosure();
+    if ($enclosure && method_exists($enclosure, 'get_type')) {
+        $ctype = $enclosure->get_type(); // e.g. "text/html", "application/rss+xml", "image/jpeg"
+    }
+}
+
+// If the library or a fork provides get_content_type(), use it; otherwise default
+if (!$ctype && method_exists($item, 'get_content_type')) {
+    $ctype = $item->get_content_type();
+}
+
+if (!$ctype) {
+    // Fallback to text/html; adjust if your downstream expects a different default
+    $ctype = 'text/html';
+}
+
+// ... continue using $ctype safely
+
+    
     $contentHtml = '';
     if ($link && isset($fullTexts[$link]) && $fullTexts[$link]['ok'] && is_string($fullTexts[$link]['html'])) {
         $contentHtml = extract_main_content($fullTexts[$link]['html']);
