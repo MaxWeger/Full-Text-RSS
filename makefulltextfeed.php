@@ -23,11 +23,8 @@ header('X-XSS-Protection: 0');
 header('Content-Type: application/xml; charset=UTF-8');
 
 // 3) Remove deprecated libxml_disable_entity_loader() usage.
-// In PHP >= 8.0, libxml external entity loader defaults are safe enough when you avoid LIBXML_NOENT.
-// Do not call libxml_disable_entity_loader().
 
 // 4) Autoload libraries (SimplePie, HTML5-PHP, HumbleHttpAgent).
-// Keep includes quiet; if files are missing, we log and bail with a controlled error XML.
 $base = __DIR__;
 function safe_require(string $path): bool {
     if (file_exists($path)) {
@@ -47,13 +44,11 @@ $ok = $ok && safe_require($base . '/libraries/humble-http-agent/RollingCurl.php'
 if (!$ok) {
     echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
     echo "<error>Dependencies not found. See error log.</error>";
-    // Flush buffer and exit; headers already set.
     ob_end_flush();
     exit;
 }
 
 // 5) Input: feed URL and options.
-// We read from GET/POST safely, validating URL. Fall back gracefully when missing.
 function param(string $name, mixed $default = null): mixed {
     if (isset($_GET[$name])) return $_GET[$name];
     if (isset($_POST[$name])) return $_POST[$name];
@@ -68,28 +63,23 @@ if ($feedUrl === '' || !filter_var($feedUrl, FILTER_VALIDATE_URL)) {
     exit;
 }
 
-// Optional: item limit and timeouts
 $itemLimit = (int) param('limit', 50);
 if ($itemLimit <= 0) $itemLimit = 50;
 $timeoutSec = (int) param('timeout', 15);
 if ($timeoutSec < 3) $timeoutSec = 10;
 
 // 6) Utilities
-
-// Guarded strtolower (avoids deprecated “Passing null to parameter #1 ($string)”)
 function safe_lower(?string $s): ?string {
     return $s === null ? null : strtolower($s);
 }
 
-// Create a cURL handle safely; return null on failure.
-// Never stringify CurlHandle; only pass to curl_*.
+// Create a cURL handle safely
 function make_curl_handle(string $url, int $timeout): ?CurlHandle {
     $ch = curl_init();
     if ($ch === false) {
         error_log("curl_init() failed");
         return null;
     }
-    // CurlHandle in PHP 8: set options explicitly
     $ok = curl_setopt_array($ch, [
         CURLOPT_URL => $url,
         CURLOPT_RETURNTRANSFER => true,
@@ -131,25 +121,23 @@ function fetch_url(string $url, int $timeout): array {
     return ['ok' => $code >= 200 && $code < 400, 'status' => (int)$code, 'body' => (string)$body, 'error' => ''];
 }
 
-// 7) Parse feed with SimplePie, but avoid dynamic property deprecations.
-// Modern SimplePie versions handle PHP 8; if yours is older, we’ll still try.
+// 7) Parse feed with SimplePie
 $sp = new SimplePie();
 $sp->set_feed_url($feedUrl);
 $sp->enable_order_by_date(true);
-$sp->set_cache_duration(0); // Disable cache for simplicity; adjust as needed.
+$sp->set_cache_duration(0);
 $sp->init();
 
 if ($sp->error()) {
     error_log("SimplePie error: " . $sp->error());
 }
 
-// 8) Build output: expand each item to full text using HumbleHttpAgent/RollingCurl safely.
+// 8) Build output: expand items using HumbleHttpAgent/RollingCurl safely.
 $items = $sp->get_items(0, $itemLimit);
 if (!is_array($items)) {
     $items = [];
 }
 
-// Prepare batch fetch list
 $targets = [];
 foreach ($items as $it) {
     $link = $it->get_link();
@@ -159,19 +147,27 @@ foreach ($items as $it) {
     $targets[] = $link;
 }
 
-// If HumbleHttpAgent supports multi-fetch, use it; otherwise fall back to curl loop.
 $fullTexts = [];
 if (!empty($targets)) {
     try {
-        // HumbleHttpAgent flow
         $agent = new HumbleHttpAgent();
-        // Be explicit with options to avoid PHP 8 surprises
-        $agent->setConnectTimeout($timeoutSec);
-        $agent->setTimeout($timeoutSec);
 
-        // fetchAllOnce / fetchAll may internally rely on RollingCurl.
-        // The library must not stringify CurlHandle; if it does, our environment
-        // still avoids emitting notices. We add a protective try/catch:
+        // Guard timeout setter methods across different library versions
+        if (method_exists($agent, 'setConnectTimeout')) {
+            $agent->setConnectTimeout($timeoutSec);
+        } elseif (method_exists($agent, 'setOptions')) {
+            // Some versions accept an options array
+            $agent->setOptions(['connect_timeout' => $timeoutSec]);
+        } // else: rely on defaults
+
+        if (method_exists($agent, 'setTimeout')) {
+            $agent->setTimeout($timeoutSec);
+        } elseif (method_exists($agent, 'setOptions')) {
+            // If only setOptions exists, apply general timeout too
+            $agent->setOptions(['timeout' => $timeoutSec]);
+        } // else: rely on defaults
+
+        // Fetch batch if available; shape may vary
         $responses = $agent->fetchAll($targets);
 
         foreach ($targets as $idx => $url) {
@@ -180,7 +176,6 @@ if (!empty($targets)) {
 
             if (is_array($responses) && array_key_exists($idx, $responses)) {
                 $r = $responses[$idx];
-                // Handle common response shapes: ['body' => ..., 'status' => ...] or objects
                 if (is_array($r)) {
                     $respBody = (string)($r['body'] ?? '');
                     $status = (int)($r['status'] ?? 200);
@@ -191,7 +186,6 @@ if (!empty($targets)) {
             }
 
             if ($respBody === '') {
-                // Fallback single fetch to improve resilience
                 $single = fetch_url($url, $timeoutSec);
                 $respBody = $single['body'];
                 $status = $single['status'];
@@ -205,7 +199,6 @@ if (!empty($targets)) {
         }
     } catch (Throwable $e) {
         error_log("HumbleHttpAgent batch error: " . $e->getMessage());
-        // Fallback: single-threaded fetch
         foreach ($targets as $url) {
             $single = fetch_url($url, $timeoutSec);
             $fullTexts[$url] = [
@@ -218,32 +211,48 @@ if (!empty($targets)) {
 }
 
 // 9) Minimal full-text extraction
-// If you have Readability or HTML5-PHP utilities, use them. Here we do a simple extraction:
-// Try to pick main content from <article>, or <main>, else fallback to body.
 function extract_main_content(string $html): string {
-    // Very lightweight extraction to avoid dependencies clashing.
-    // If HTML5-PHP is present, we could parse DOM; to keep safe under PHP 8, use regex heuristics.
-    // Note: For production quality, replace with a robust parser (Readability, DOMDocument).
     $clean = $html;
 
-    // Prefer <article>
     if (preg_match('~<article\b[^>]*>(.*?)</article>~is', $clean, $m)) {
         return trim($m[1]);
     }
-    // Then <main>
     if (preg_match('~<main\b[^>]*>(.*?)</main>~is', $clean, $m)) {
         return trim($m[1]);
     }
-    // Else body content
     if (preg_match('~<body\b[^>]*>(.*?)</body>~is', $clean, $m)) {
         return trim($m[1]);
     }
-    // Fallback: entire HTML (may be noisy)
     return trim($clean);
 }
 
+// Helper to get content type safely from a SimplePie item across versions
+function infer_item_content_type(SimplePie_Item $item): string {
+    // Prefer enclosure MIME type if present
+    if (method_exists($item, 'get_enclosure')) {
+        $enc = $item->get_enclosure();
+        if ($enc && method_exists($enc, 'get_type')) {
+            $t = $enc->get_type();
+            if (is_string($t) && $t !== '') {
+                return strtolower($t);
+            }
+        }
+    }
+    // If the library/fork provides get_content_type(), use it
+    if (method_exists($item, 'get_content_type')) {
+        $t = $item->get_content_type();
+        if (is_string($t) && $t !== '') {
+            return strtolower($t);
+        }
+    }
+    // Heuristic: HTML vs XML based on available fields
+    $hasHtml =
+        (method_exists($item, 'get_content') && is_string($item->get_content()) && $item->get_content() !== '') ||
+        (method_exists($item, 'get_description') && is_string($item->get_description()) && $item->get_description() !== '');
+    return $hasHtml ? 'text/html' : 'application/xml';
+}
+
 // 10) Emit RSS XML with expanded content.
-// Keep headers consistent and never echo notices.
 echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
 echo "<rss version=\"2.0\">\n";
 echo "  <channel>\n";
@@ -255,42 +264,17 @@ foreach ($items as $it) {
     $title = $it->get_title() ?: '';
     $link = $it->get_link() ?: '';
     $desc = $it->get_description() ?: '';
-    $date = $it->get_date('U'); // Unix timestamp or false
+    $date = $it->get_date('U');
     $guid = $it->get_id() ?: $link;
 
-    // Safe lowercase helper example (avoid strtolower(null))
-    $mime = safe_lower($it->get_content_type() ?: null); // may be null on some feeds
+    // SAFE: do not call $it->get_content_type() directly (may not exist)
+    $mime = infer_item_content_type($it);
 
-// makefulltextfeed.php (around line 262)
-$ctype = null;
-
-// Prefer enclosure MIME type if available
-if (method_exists($item, 'get_enclosure')) {
-    $enclosure = $item->get_enclosure();
-    if ($enclosure && method_exists($enclosure, 'get_type')) {
-        $ctype = $enclosure->get_type(); // e.g. "text/html", "application/rss+xml", "image/jpeg"
-    }
-}
-
-// If the library or a fork provides get_content_type(), use it; otherwise default
-if (!$ctype && method_exists($item, 'get_content_type')) {
-    $ctype = $item->get_content_type();
-}
-
-if (!$ctype) {
-    // Fallback to text/html; adjust if your downstream expects a different default
-    $ctype = 'text/html';
-}
-
-// ... continue using $ctype safely
-
-    
     $contentHtml = '';
     if ($link && isset($fullTexts[$link]) && $fullTexts[$link]['ok'] && is_string($fullTexts[$link]['html'])) {
         $contentHtml = extract_main_content($fullTexts[$link]['html']);
     }
     if ($contentHtml === '') {
-        // fallback to feed description if extraction failed
         $contentHtml = $desc;
     }
 
