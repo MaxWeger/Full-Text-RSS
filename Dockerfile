@@ -41,3 +41,16 @@ RUN chown -R www-data:www-data /var/www/html
 
 # Set working directory
 WORKDIR /var/www/html
+
+# ... (Your existing lines) ...
+
+# --- ADD THIS SECTION ---
+# Create the custom config directory if it doesn't exist
+RUN mkdir -p /var/www/html/site_config/custom
+
+# Copy your new config file to the correct location
+COPY ft.com.txt /var/www/html/site_config/custom/ft.com.txt
+# ------------------------
+
+# Ensure correct permissions for Apache www-data
+RUN chown -R www-data:www-data /var/www/html
