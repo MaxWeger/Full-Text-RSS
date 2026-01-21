@@ -26,10 +26,10 @@ WORKDIR /var/www/html
 COPY . /var/www/html
 
 # 2. Create the custom config folder
-RUN mkdir -p /var/www/html/site_config/custom
+RUN mkdir -p /site_config/custom
 
 # 3. Copy your custom config file
-COPY ft.com.txt /var/www/html/site_config/custom/ft.com.txt
+COPY ft.com.txt site_config/custom/ft.com.txt
 
 # Permissions
 RUN chown -R www-data:www-data /var/www/html
