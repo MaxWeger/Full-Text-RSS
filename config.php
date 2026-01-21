@@ -1,5 +1,10 @@
 <?php
 /* Full-Text RSS config */
+// config.php or a small bootstrap included before fetch
+$ftCookie = getenv('FT_COOKIE'); // set this as a Fly.io secret
+if ($ftCookie) {
+  $GLOBALS['site_config_overrides']['ft.com']['header'][] = 'Cookie: ' . $ftCookie;
+}
 
 // ......IMPORTANT......................................
 // .....................................................
