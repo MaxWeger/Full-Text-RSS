@@ -24,24 +24,24 @@ COPY . /var/www/html
 RUN mkdir -p /var/www/html/site_config/custom \
  && mkdir -p /var/www/html/site_config/standard
 
-# 6. FORCE the FT.com config (Targeting the "Core" layout)
-#    We added specific rules for the 'no-js' version you are receiving.
-RUN echo "http_header(User-Agent): Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36\n\
+# 6. FORCE the FT.com config
+#    CHANGE 1: User-Agent is now Googlebot to force "Core" (No-JS) HTML.
+#    CHANGE 2: Updated 'body' selectors to match the Core layout.
+RUN echo "http_header(User-Agent): Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)\n\
 http_header(Accept-Language): en-US,en;q=0.9\n\
 http_header(Referer): https://www.google.com/\n\
 http_header(Cookie): FTSession_s=04eIIS18r0s706cObJFMpe_F0wAAAZvfQTtfw8I.MEUCIQDltpEEs7UvJj-QRr0b-Vxoar_fwM4Fvc2tNxyc6hXefQIgCcq8V3iJvxvn-Xzri3QqSxoeTzWSPo4yqjSUmTetzE0; FTClientSessionId=c5e867e4-2020-408e-93c9-b58d871d3f42;\n\
 \n\
 normalize_url: yes\n\
 \n\
-# TARGET THE CONTENT\n\
-# 1. Standard article body\n\
+# Extraction Rules for FT Core/No-JS\n\
 body: //div[contains(@class, 'article-body')]\n\
-# 2. Core/No-JS version body\n\
 body: //div[contains(@class, 'article__content-body')]\n\
-# 3. Fallback for generic containers\n\
-body: //main//article\n\
+body: //article\n\
+# Fallback: Capture the main content area if specific tags fail\n\
+body: //main\n\
 \n\
-# CLEANUP\n\
+# Cleanup\n\
 strip: //div[contains(@class,'barrier')]\n\
 strip: //div[contains(@data-component,'offer-card')]\n\
 strip: //aside\n\
