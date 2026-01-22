@@ -25,7 +25,7 @@ RUN mkdir -p /var/www/html/site_config/custom \
  && mkdir -p /var/www/html/site_config/standard
 
 # 6. COPY THE LOCAL CONFIG FILE
-# This is the most robust way to ensure formatting is correct.
+# Using the local file prevents formatting errors
 COPY ft.com.txt /var/www/html/site_config/custom/ft.com.txt
 RUN cp /var/www/html/site_config/custom/ft.com.txt /var/www/html/site_config/standard/ft.com.txt
 
