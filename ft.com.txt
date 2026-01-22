@@ -1,0 +1,24 @@
+http_header(User-Agent): curl/7.68.0
+http_header(Accept: */*)
+http_header(Cookie): FTSession_s=04eIIS18r0s706cObJFMpe_F0wAAAZvfQTtfw8I.MEUCIQDltpEEs7UvJj-QRr0b-Vxoar_fwM4Fvc2tNxyc6hXefQIgCcq8V3iJvxvn-Xzri3QqSxoeTzWSPo4yqjSUmTetzE0; FTClientSessionId=c5e867e4-2020-408e-93c9-b58d871d3f42;
+
+normalize_url: yes
+
+# Extraction Rules (Core/No-JS Support)
+body: //div[contains(@class, 'article-body')]
+body: //div[contains(@class, 'article__content-body')]
+body: //div[@id='site-content']
+body: //main
+body: //article
+
+# Cleanup
+strip: //div[contains(@class,'barrier')]
+strip: //div[contains(@data-component,'offer-card')]
+strip: //aside
+strip: //footer
+strip: //nav
+strip: //div[contains(@class,'ad')]
+strip: //div[contains(@class,'o-ads')]
+
+prune: yes
+tidy: yes
