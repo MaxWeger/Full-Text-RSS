@@ -1,13 +1,11 @@
-# FT.com Configuration (Legacy Syntax)
-# We use 'header:' instead of 'http_header:' for the free version.
-
+# FT.com Configuration
 header: User-Agent: curl/7.68.0
 header: Accept: */*
 header: Cookie: FTSession_s=04eIIS18r0s706cObJFMpe_F0wAAAZvfQTtfw8I.MEUCIQDltpEEs7UvJj-QRr0b-Vxoar_fwM4Fvc2tNxyc6hXefQIgCcq8V3iJvxvn-Xzri3QqSxoeTzWSPo4yqjSUmTetzE0; FTClientSessionId=c5e867e4-2020-408e-93c9-b58d871d3f42;
+
 normalize_url: yes
 
-# Extraction Rules (Core/No-JS Support)
-# We cast a wide net to catch whatever HTML layout FT sends
+# Extraction Rules (Catches both Modern and Core layouts)
 body: //div[contains(@class, 'article-body')]
 body: //div[contains(@class, 'article__content-body')]
 body: //div[@id='site-content']
@@ -16,12 +14,11 @@ body: //article
 
 # Cleanup
 strip: //div[contains(@class,'barrier')]
+strip: //div[contains(@class,'o-ads')]
 strip: //div[contains(@data-component,'offer-card')]
 strip: //aside
 strip: //footer
 strip: //nav
-strip: //div[contains(@class,'ad')]
-strip: //div[contains(@class,'o-ads')]
 
 prune: yes
 tidy: yes
