@@ -24,10 +24,14 @@ COPY . /var/www/html
 RUN mkdir -p /var/www/html/site_config/custom \
  && mkdir -p /var/www/html/site_config/standard
 
-# 6. COPY CONFIGS (The Fix)
-# We copy the file to BOTH 'ft.com.txt' and 'www.ft.com.txt'
+# 6. COPY CONFIGS
+# We copy to multiple names to ensure the software finds it
 COPY ft.com.txt /var/www/html/site_config/custom/ft.com.txt
 RUN cp /var/www/html/site_config/custom/ft.com.txt /var/www/html/site_config/custom/www.ft.com.txt
 
-# 7. Permissions
+# 7. NUCLEAR CACHE CLEAR
+# We delete the cache folder so the app is forced to fetch fresh data
+RUN rm -rf /var/www/html/cache/*
+
+# 8. Permissions
 RUN chown -R www-data:www-data /var/www/html
