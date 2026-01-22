@@ -1,10 +1,14 @@
-http_header(User-Agent): curl/7.68.0
-http_header(Accept: */*)
-http_header(Cookie): FTSession_s=04eIIS18r0s706cObJFMpe_F0wAAAZvfQTtfw8I.MEUCIQDltpEEs7UvJj-QRr0b-Vxoar_fwM4Fvc2tNxyc6hXefQIgCcq8V3iJvxvn-Xzri3QqSxoeTzWSPo4yqjSUmTetzE0; FTClientSessionId=c5e867e4-2020-408e-93c9-b58d871d3f42;
+# FT.com Configuration (Legacy Syntax)
+# We use 'header:' instead of 'http_header:' for the free version.
+
+header: User-Agent: curl/7.68.0
+header: Accept: */*
+header: Cookie: PASTE_YOUR_CLEAN_COOKIE_HERE
 
 normalize_url: yes
 
 # Extraction Rules (Core/No-JS Support)
+# We cast a wide net to catch whatever HTML layout FT sends
 body: //div[contains(@class, 'article-body')]
 body: //div[contains(@class, 'article__content-body')]
 body: //div[@id='site-content']
