@@ -24,10 +24,10 @@ COPY . /var/www/html
 RUN mkdir -p /var/www/html/site_config/custom \
  && mkdir -p /var/www/html/site_config/standard
 
-# 6. COPY THE LOCAL CONFIG FILE
-# Using the local file prevents formatting errors
+# 6. COPY CONFIGS (The Fix)
+# We copy the file to BOTH 'ft.com.txt' and 'www.ft.com.txt'
 COPY ft.com.txt /var/www/html/site_config/custom/ft.com.txt
-RUN cp /var/www/html/site_config/custom/ft.com.txt /var/www/html/site_config/standard/ft.com.txt
+RUN cp /var/www/html/site_config/custom/ft.com.txt /var/www/html/site_config/custom/www.ft.com.txt
 
 # 7. Permissions
 RUN chown -R www-data:www-data /var/www/html
